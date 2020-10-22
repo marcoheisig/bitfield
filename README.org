@@ -210,7 +210,7 @@ we supply the =int= attribute as an argument:
 ; 43:       CC10             int3 16                          ; Invalid argument count trap
 #+END_SRC
 
-The generated assembler code is slighly more complicated, but most of this
+The generated assembler code is slightly more complicated, but most of this
 is about checking that the =int= argument is actually a positive integer
 that is at most 24.  If we strip the argument checking code, we end up with
 
