@@ -1,0 +1,140 @@
+#+TITLE: Efficient Bitfields for Common Lisp
+
+* How It Works
+
+The =bitfield= library provides a simple, efficient mechanism for storing
+multiple discrete states into a single non-negative integer.  Its main API
+is the macro =define-bitfield= that defines a certain kind of bitfield
+consisting of a constructor, a function for creating modified clones, and
+one reader function for each slot.
+
+The following example illustrates these features for the case of defining
+cards from a standard 52 card deck:
+
+#+BEGIN_SRC lisp
+(define-bitfield card
+  (suit (member clubs diamonds hearts spades))
+  (rank (member ace 2 3 4 5 6 7 8 9 10 jack queen king)))
+
+(defparameter *card* (make-card :rank 'ace :suit 'spades))
+
+(values
+ ,*card*
+ (card-suit *card*)
+ (card-rank *card*))
+;; => 3
+;; => spades
+;; => ace
+
+(defparameter *card* (clone-card *card* :rank 'queen))
+
+(values
+ ,*card*
+ (card-suit *card*)
+ (card-rank *card*))
+;; => 91
+;; => spades
+;; => queen
+#+END_SRC
+
+* Kinds of Bitfield Slots
+
+Each bitfield slot is described by a list whose first element is the slot
+name, whose second element is a slot specifier, and whose remaining entries
+for a plist that may supply additional keyword arguments.  The bitfield
+slot specifier is then parsed using an extensible protocol to obtain a
+bitfield slot class, the number of distinct states of that slot, and a
+(possibly empty) plist of additional keyword arguments.  These properties
+are then used to create a bitfield slot instance.  In the end, the
+properties of the bitfield slot instances of all slots constitute the
+behavior of the resulting bitfield.
+
+The different kinds of bitfield slots are illustrated in this second
+example:
+
+#+BEGIN_SRC lisp
+(define-bitfield examplebits
+  (a boolean)
+  (b (signed-byte 2))
+  (c (unsigned-byte 3) :initform 1)
+  (d (integer -100 100))
+  (e (member foo bar baz)))
+
+(defun examplebits-values (examplebits)
+  (list
+   (examplebits-a examplebits)
+   (examplebits-b examplebits)
+   (examplebits-c examplebits)
+   (examplebits-d examplebits)
+   (examplebits-e examplebits)))
+
+(defparameter *default* (make-examplebits))
+
+(examplebits-values *default*)
+;; => (nil 0 1 -100 foo)
+
+(defparameter *explicit* (make-examplebits :a t :b -1 :c 7 :d 42 :e 'baz))
+
+(examplebits-values *explicit*)
+;; => (t -1 7 42 baz)
+
+(defparameter *clone* (clone-examplebits *explicit* :a nil :b -1 :c 2 :d -12 :e 'bar))
+
+(examplebits-values *clone*)
+;; => (nil -1 2 -12 bar)
+#+END_SRC
+
+This library comes equipped with parsers for =boolean=, =bit=,
+=(unsigned-byte N)=, =(signed-byte N)=, =(integer A B)=, and =(member OBJ1
+... OBJN)= slot specifiers.  New kinds of slots and slot specifiers can be
+defined by extending the existing protocol functions, as shown in the next
+section.
+
+* Custom Bitfield Slots
+
+In the next example, we show how the protocol can be augmented by
+introducing both a bitfield slot class and the corresponding atomic
+bitfield slot specifier parser for an =ascii= slot.
+
+#+BEGIN_SRC lisp
+(defclass bitfield-ascii-slot (bitfield-slot)
+  ())
+
+(defmethod bitfield-slot-pack ((slot bitfield-ascii-slot) value-form)
+  `(char-code ,value-form))
+
+(defmethod bitfield-slot-unpack ((slot bitfield-ascii-slot) value-form)
+  `(code-char ,value-form))
+
+(defmethod parse-atomic-bitfield-slot-specifier
+    ((specifier (eql 'ascii)) &key (initform #\?))
+  (values 'bitfield-ascii-slot
+          128
+          `(:initform ,initform)))
+
+(define-bitfield four-letter-word
+  (first-letter ascii)
+  (second-letter ascii)
+  (third-letter ascii)
+  (fourth-letter ascii))
+
+(defun four-letter-word-string (four-letter-word)
+  (format nil "~C~C~C~C"
+          (four-letter-word-first-letter four-letter-word)
+          (four-letter-word-second-letter four-letter-word)
+          (four-letter-word-third-letter four-letter-word)
+          (four-letter-word-fourth-letter four-letter-word)))
+
+(four-letter-word-string
+ (make-four-letter-word))
+;; => "????"
+
+(four-letter-word-string
+ (make-four-letter-word
+  :fourth-letter #\n
+  :second-letter #\v
+  :first-letter #\o
+  :third-letter #\e))
+;; => "oven"
+#+END_SRC
+
