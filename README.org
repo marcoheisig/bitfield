@@ -40,8 +40,8 @@ cards from a standard 52 card deck:
 * Kinds of Bitfield Slots
 
 Each bitfield slot is described by a list whose first element is the slot
-name, whose second element is a slot specifier, and whose remaining entries
-for a plist that may supply additional keyword arguments.  The bitfield
+name and whose second element is a slot specifier.  The remaining entries
+form a plist that may supply additional keyword arguments.  The bitfield
 slot specifier is then parsed using an extensible protocol to obtain a
 bitfield slot class, the number of distinct states of that slot, and a
 (possibly empty) plist of additional keyword arguments.  These properties
