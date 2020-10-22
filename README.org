@@ -269,8 +269,13 @@ with the following sequence of instructions for our =go-to-gym= function:
 
 We count one =shr= instruction, two =shl= instructions, six =add=
 instructions and two =or= instructions.  Not bad for parsing three keyword
-arguments with complicated values.
+arguments with complicated values.  With argument checking, the code grows
+further by two conditional branches per argument.  But with the branch
+prediction of a modern CPU, those branches will be almost for free.
 
-With argument checking, the code grows further by two conditional branches
-per argument.  But with the branch prediction of a modern CPU, those
-branches will be almost for free.
+* Conclusion
+
+I wrote this library because I am tired of manually fiddling with bits just
+to save memory.  Now I can finally pack plenty of information into a single
+machine word without worrying about correctness.  I hope you find this
+useful, too.
