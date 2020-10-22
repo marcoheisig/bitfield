@@ -328,4 +328,5 @@ PARSE-COMPOUND-BITFIELD-SLOT-SPECIFIER.
           ,@(loop for slot in slots
                   collect
                   `(ash ,(bitfield-slot-pack slot (bitfield-slot-name slot))
-                        ,(bitfield-slot-start slot))))))))
+                        ,(bitfield-slot-start slot)))))
+       ',name)))
