@@ -138,3 +138,134 @@ bitfield slot specifier parser for an =ascii= slot.
 ;; => "oven"
 #+END_SRC
 
+* Performance
+
+Bitfields are defined or redefined exclusively via keyword arguments.
+Thanks to inlining, this doesn't affect performance at all.  In this
+example, we inspect the assembler code that is generated for manipulations
+of a particular bitfield.  (The examples are shown for SBCL)
+
+#+BEGIN_SRC lisp
+(define-bitfield hero
+  (dex (integer 1 24))
+  (str (integer 1 24))
+  (int (integer 1 24)))
+#+END_SRC
+
+Firstly, we look at the code that is generated for a bitfield whose
+arguments are constant:
+
+#+BEGIN_SRC lisp
+(defun make-archmage ()
+  (make-hero :dex 10 :str 8 :int 24))
+
+(disassemble #'make-archmage)
+; disassembly for make-archmage
+; Size: 21 bytes. Origin: #x52E2147C                          ; make-archmage
+; 7C:       498B4510         mov RAX, [R13+16]                ; thread.binding-stack-pointer
+; 80:       488945F8         mov [RBP-8], RAX
+; 84:       BAD2B90000       mov EDX, 47570
+; 89:       488BE5           mov RSP, RBP
+; 8C:       F8               clc
+; 8D:       5D               pop RBP
+; 8E:       C3               ret
+; 8F:       CC10             int3 16                          ; Invalid argument count trap
+
+#+END_SRC
+
+We see that the entire constructor has been folded into a single constant,
+47570, which is the value of an Archmage shifted left by one bit.  The
+shift is due to SBCL's internal representation of fixnums.
+
+A more interesting example is when we consider constructors where not all
+arguments are constant.  Here, we define a constructor for a wizard where
+we supply the =int= attribute as an argument:
+
+#+BEGIN_SRC lisp
+(defun make-wizard (int)
+  (make-hero :dex 10 :str 8 :int int))
+
+(disassemble #'make-wizard)
+; disassembly for make-wizard
+; Size: 53 bytes. Origin: #x52E21510                          ; make-wizard
+; 10:       498B5D10         mov RBX, [R13+16]                ; thread.binding-stack-pointer
+; 14:       48895DF8         mov [RBP-8], RBX
+; 18:       4885C0           test RAX, RAX
+; 1B:       7422             jeq L0
+; 1D:       A801             test AL, 1
+; 1F:       751E             jne L0
+; 21:       4883F830         cmp RAX, 48
+; 25:       7718             jnbe L0
+; 27:       488BD0           mov RDX, RAX
+; 2A:       4883C2FE         add RDX, -2
+; 2E:       48C1E20A         shl RDX, 10
+; 32:       4881CAD2010000   or RDX, 466
+; 39:       488BE5           mov RSP, RBP
+; 3C:       F8               clc
+; 3D:       5D               pop RBP
+; 3E:       C3               ret
+; 3F: L0:   CC1E             int3 30                          ; OBJECT-NOT-TYPE-ERROR
+; 41:       00               byte #X00                        ; RAX
+; 42:       23               byte #X23                        ; '(integer 1 24)
+; 43:       CC10             int3 16                          ; Invalid argument count trap
+#+END_SRC
+
+The generated assembler code is slighly more complicated, but most of this
+is about checking that the =int= argument is actually a positive integer
+that is at most 24.  If we strip the argument checking code, we end up with
+
+#+BEGIN_SRC lisp
+; 27:       488BD0           mov RDX, RAX
+; 2A:       4883C2FE         add RDX, -2
+; 2E:       48C1E20A         shl RDX, 10
+; 32:       4881CAD2010000   or RDX, 466
+; 39:       488BE5           mov RSP, RBP
+; 3C:       F8               clc
+; 3D:       5D               pop RBP
+; 3E:       C3               ret
+#+END_SRC
+
+We see that adding one variable argument to a bitfield constructor only
+costs one add instruction and one left-shift instruction.
+
+The last part is about cloning bitfields.  The following code takes a hero
+and returns this hero but with a slightly higher =str= attribute.
+
+#+BEGIN_SRC lisp
+(defun go-to-gym (hero)
+  (clone-hero hero :str (1+ (hero-str hero))))
+#+END_SRC
+
+If we disable argument checking, e.g., by declaring =(safety 0)=, we end up
+with the following instructions for our clone operation:
+
+#+BEGIN_SRC lisp
+; 12:       8BD8             mov EBX, EAX
+; 14:       C1EB05           shr EBX, 5
+; 17:       83E33E           and EBX, 62
+; 1A:       4883C302         add RBX, 2
+; 1E:       4883C302         add RBX, 2
+; 22:       488BD0           mov RDX, RAX
+; 25:       8BF2             mov ESI, EDX
+; 27:       83E63E           and ESI, 62
+; 2A:       4883C602         add RSI, 2
+; 2E:       488BCA           mov RCX, RDX
+; 31:       48C1F90A         sar RCX, 10
+; 35:       4883E1FE         and RCX, -2
+; 39:       4883C102         add RCX, 2
+; 3D:       488D56FE         lea RDX, [RSI-2]
+; 41:       4883C3FE         add RBX, -2
+; 45:       48C1E305         shl RBX, 5
+; 49:       4809DA           or RDX, RBX
+; 4C:       4883C1FE         add RCX, -2
+; 50:       48C1E10A         shl RCX, 10
+; 54:       4809CA           or RDX, RCX
+; 57:       488BE5           mov RSP, RBP
+; 5A:       F8               clc
+; 5B:       5D               pop RBP
+; 5C:       C3               ret
+#+END_SRC
+
+We count one =shr= instruction, two =shl= instructions, six =add=
+instructions and two =or= instructions.  Not bad for parsing three keyword
+arguments with complicated default values.
